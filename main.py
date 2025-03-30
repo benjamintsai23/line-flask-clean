@@ -25,6 +25,7 @@ def callback():
 def handle_message(event):
     user_text = event.message.text
     source_type = event.source.type
+print("收到的事件：", event)
 
     # 這段會印出 groupId，方便你取得
     if source_type == "group":
