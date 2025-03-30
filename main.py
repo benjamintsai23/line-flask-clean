@@ -23,10 +23,17 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    reply = f"你說了：{event.message.text}"
+    user_text = event.message.text
+    source_type = event.source.type
+
+    # 這段會印出 groupId，方便你取得
+    if source_type == "group":
+        print("💡 Group ID 是：", event.source.group_id)
+
+    # 正常回覆訊息
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply)
+        TextSendMessage(text=f"你說了：{user_text}")
     )
 
 if __name__ == "__main__":
