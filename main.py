@@ -33,7 +33,7 @@ def handle_message(event):
     # 正常回覆訊息
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=f"你說了：{user_text}")
+        TextSendMessage(text=f"很高興你說了：{user_text}")
     )
 
 if __name__ == "__main__":
