@@ -1,2 +1,4 @@
-flask
+feedparser
+apscheduler
 line-bot-sdk
+flask
