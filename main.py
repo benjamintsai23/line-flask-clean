@@ -1,66 +1,77 @@
 import os
-import feedparser
+from dotenv import load_dotenv
 from flask import Flask, request, abort
-from linebot import LineBotApi
-from linebot.models import MessageEvent, TextSendMessage
+from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from apscheduler.schedulers.background import BackgroundScheduler
+import feedparser
 
-# 設置 Flask 應用
+# 載入 .env 檔案
+load_dotenv()  # 確保 .env 檔案在程式根目錄中
+
+# 讀取 LINE Channel Access Token 和 Secret
+line_channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+line_channel_secret = os.getenv('LINE_CHANNEL_SECRET')
+
+# 測試環境變數是否正確載入
+print("LINE_CHANNEL_ACCESS_TOKEN:", line_channel_access_token)
+print("LINE_CHANNEL_SECRET:", line_channel_secret)
+
+# 檢查必要環境變數是否存在
+if not line_channel_access_token:
+    raise ValueError("LINE_CHANNEL_ACCESS_TOKEN is missing.")
+if not line_channel_secret:
+    raise ValueError("LINE_CHANNEL_SECRET is missing.")
+
+# 初始化 Flask 應用
 app = Flask(__name__)
 
-# 你的 LINE 渠道存取權杖與密鑰
-line_bot_api = LineBotApi(os.getenv('S0iIaPNYEpVY22HfXkmgiJiGFcGtJlMVZUs3WStlSeETJjFj1YvJkUEhyTCVd24pBbaFFuuyxixbBsCNKiitOLG5UMA7wHMzQVIgJ1E1OoggZrDLTXid9UYzGN1ckYZdXTParo1RGCrbYht2MlYG4wdB04t89/1O/w1cDnyilFU='))
-handler = WebhookHandler(os.getenv('faaa98f1f31315805b7deb6cff19e0fd'))
+# 初始化 LINE Bot API 和 Webhook Handler
+line_bot_api = LineBotApi(line_channel_access_token)
+handler = WebhookHandler(line_channel_secret)
 
-# 設定 RSS 源
-rss_sources = {
-    'Yahoo Finance': 'https://tw.news.yahoo.com/rss/finance',
-    '鉅亨網台股': 'https://www.cnyes.com/rss/cat/tw_stock',
-}
-
-# 抓取 RSS 資料並發送的函數
-def fetch_rss_and_send():
-    for source_name, rss_url in rss_sources.items():
-        # 解析 RSS
-        feed = feedparser.parse(rss_url)
-        news = feed.entries[:5]  # 只取前 5 則新聞
-
-        # 依次將每則新聞發送到 LINE 群組
-        for entry in news:
-            title = entry.title
-            link = entry.link
-            message = f"【{source_name}】\n{title}\n{link}"
-            # 發送新聞訊息到群組或指定的 LINE 使用者
-            line_bot_api.broadcast(TextSendMessage(text=message))
-
-# 使用 APScheduler 設定定時任務，每天 8:30 和 19:30 執行
-scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_rss_and_send, 'cron', hour=8, minute=30)  # 8:30
-scheduler.add_job(fetch_rss_and_send, 'cron', hour=19, minute=30)  # 19:30
-scheduler.start()
-
-# Webhook 路由
+# 設定 webhook 端點
 @app.route("/webhook", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-
+    
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-
+    
     return 'OK'
 
-# 處理訊息事件
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    user_text = event.message.text
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=f"我收到你的訊息：{user_text}")
-    )
+
+# 設定每天從 RSS 來源擷取新聞並推送到 LINE
+def fetch_rss_and_send():
+    rss_sources = {
+        'Yahoo Finance': 'https://tw.news.yahoo.com/rss/finance',
+        '鉅亨網台股': 'https://www.cnyes.com/rss/cat/tw_stock'
+    }
+
+    for source_name, rss_url in rss_sources.items():
+        feed = feedparser.parse(rss_url)
+        news = feed.entries[:5]  # 只取前 5 則新聞
+
+        for entry in news:
+            title = entry.title
+            link = entry.link
+            message = f'{title} - {link}'
+
+            # 推送到 LINE 群組
+            line_bot_api.push_message(
+                'YOUR_GROUP_ID',  # 請替換為你的 LINE 群組 ID
+                TextSendMessage(text=message)
+            )
+
+
+# 定時執行 RSS 擷取並推送
+scheduler = BackgroundScheduler()
+scheduler.add_job(fetch_rss_and_send, 'interval', hours=1)  # 每小時執行一次
+scheduler.start()
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    app.run(debug=True)
