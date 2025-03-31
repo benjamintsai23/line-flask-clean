@@ -1,37 +1,36 @@
-import os
-from dotenv import load_dotenv
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from apscheduler.schedulers.background import BackgroundScheduler
-import feedparser
+from dotenv import load_dotenv
+import os
 
 # 載入 .env 檔案
-load_dotenv()  # 確保 .env 檔案在程式根目錄中
+load_dotenv()
 
-# 讀取 LINE Channel Access Token 和 Secret
-line_channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-line_channel_secret = os.getenv('LINE_CHANNEL_SECRET')
+# 設定 LINE Channel Access Token 和 Secret
+line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
 
-# 測試環境變數是否正確載入
-print("LINE_CHANNEL_ACCESS_TOKEN:", line_channel_access_token)
-print("LINE_CHANNEL_SECRET:", line_channel_secret)
-
-# 檢查必要環境變數是否存在
+# 測試是否成功取得環境變數
 if not line_channel_access_token:
-    raise ValueError("LINE_CHANNEL_ACCESS_TOKEN is missing.")
+    print("ERROR: LINE_CHANNEL_ACCESS_TOKEN is not set.")
 if not line_channel_secret:
-    raise ValueError("LINE_CHANNEL_SECRET is missing.")
+    print("ERROR: LINE_CHANNEL_SECRET is not set.")
+else:
+    print(f"LINE_CHANNEL_ACCESS_TOKEN: {line_channel_access_token}")
+    print(f"LINE_CHANNEL_SECRET: {line_channel_secret}")
 
-# 初始化 Flask 應用
+# 若環境變數未設置，則拋出錯誤
+if not line_channel_access_token or not line_channel_secret:
+    raise ValueError("LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_SECRET is missing")
+
 app = Flask(__name__)
 
-# 初始化 LINE Bot API 和 Webhook Handler
+# 初始化 LineBotApi 和 WebhookHandler
 line_bot_api = LineBotApi(line_channel_access_token)
 handler = WebhookHandler(line_channel_secret)
 
-# 設定 webhook 端點
 @app.route("/webhook", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -44,34 +43,12 @@ def callback():
     
     return 'OK'
 
-
-# 設定每天從 RSS 來源擷取新聞並推送到 LINE
-def fetch_rss_and_send():
-    rss_sources = {
-        'Yahoo Finance': 'https://tw.news.yahoo.com/rss/finance',
-        '鉅亨網台股': 'https://www.cnyes.com/rss/cat/tw_stock'
-    }
-
-    for source_name, rss_url in rss_sources.items():
-        feed = feedparser.parse(rss_url)
-        news = feed.entries[:5]  # 只取前 5 則新聞
-
-        for entry in news:
-            title = entry.title
-            link = entry.link
-            message = f'{title} - {link}'
-
-            # 推送到 LINE 群組
-            line_bot_api.push_message(
-                'YOUR_GROUP_ID',  # 請替換為你的 LINE 群組 ID
-                TextSendMessage(text=message)
-            )
-
-
-# 定時執行 RSS 擷取並推送
-scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_rss_and_send, 'interval', hours=1)  # 每小時執行一次
-scheduler.start()
+# 設定事件處理器
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_text = event.message.text
+    reply = f"您說了: {user_text}"
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 if __name__ == "__main__":
     app.run(debug=True)
