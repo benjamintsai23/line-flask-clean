@@ -39,7 +39,7 @@ else:
     personal_subscribers = set()
 
 # 管理者 LINE ID（請換成你自己的）
-ADMIN_USER_ID = "你的 LINE user_id"
+ADMIN_USER_ID = "jamin-tsai"
 
 @app.route("/webhook", methods=['POST'])
 def callback():
