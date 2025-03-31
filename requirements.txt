@@ -5,3 +5,6 @@ flask
 flask
 line-bot-sdk
 python-dotenv
+flask
+line-bot-sdk
+gunicorn
