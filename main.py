@@ -40,9 +40,12 @@ def callback():
 # 處理用戶訊息
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-   @handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
     print("收到訊息來源：", event.source)
+    user_text = event.message.text
+    reply = f"你說的是：{user_text}"
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply)
     )
 
 # 從 RSS 擷取新聞並送出
