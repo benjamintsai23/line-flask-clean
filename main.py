@@ -45,14 +45,12 @@ def handle_message(event):
     if text in ["功能", "選單", "？"]:
         menu = """📊 LINE 財經群組功能選單：
 1️⃣ 功能：顯示這個選單
-2️⃣ 📰 今日新聞：立即查看最新財經新聞（Yahoo + 鉅亨網）
+2️⃣ 每天推播最新財經新聞（早上 8:30、晚上 19:30）
 （更多功能即將加入...）"""
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=menu)
         )
-    elif text == "今日新聞":
-        send_latest_news(event.reply_token)
     else:
         # 回覆原本的「你說的是」
         line_bot_api.reply_message(
@@ -69,40 +67,28 @@ def handle_message(event):
 # 抓取新聞並推播
 
 def fetch_and_send_news():
-    rss_list = [
-        "https://tw.news.yahoo.com/rss/finance",
-        "https://www.cnyes.com/rss/cat/tw_stock"
-    ]
-
-    for rss_url in rss_list:
-        feed = feedparser.parse(rss_url)
-        entries = feed.entries[:5]  # 每來源最多 5 則
-        for entry in entries:
-            msg = f"{entry.title}\n{entry.link}"
-            for gid in group_ids:
-                try:
-                    line_bot_api.push_message(gid, TextSendMessage(text=msg))
-                except Exception as e:
-                    print(f"❌ 推播到 {gid} 發生錯誤：{e}")
-
-# 今日新聞即時查詢
-def send_latest_news(reply_token):
     rss_sources = {
-        "Yahoo 財經新聞": "https://tw.news.yahoo.com/rss/finance",
-        "鉅亨網新聞": "https://www.cnyes.com/rss/cat/tw_stock"
+        "Yahoo 財經": "https://tw.news.yahoo.com/rss/finance",
+        "鉅亨網台股": "https://www.cnyes.com/rss/cat/tw_stock"
     }
-
-    messages = []
 
     for source_name, rss_url in rss_sources.items():
         feed = feedparser.parse(rss_url)
-        entries = feed.entries[:3]  # 每個來源取 3 則
-        msg = f"📢 {source_name}：\n"
-        for i, entry in enumerate(entries, 1):
-            msg += f"{i}. {entry.title}\n{entry.link}\n"
-        messages.append(TextSendMessage(text=msg.strip()))
+        entries = feed.entries[:5]  # 每來源最多 5 則
 
-    line_bot_api.reply_message(reply_token, messages)
+        if not entries:
+            continue
+
+        # 整理推播訊息
+        news_text = f"📰【{source_name}】\n"
+        for entry in entries:
+            news_text += f"\n• {entry.title}\n{entry.link}\n"
+
+        for gid in group_ids:
+            try:
+                line_bot_api.push_message(gid, TextSendMessage(text=news_text))
+            except Exception as e:
+                print(f"❌ 推播到 {gid} 發生錯誤：{e}")
 
 # 啟動排程器
 scheduler = BackgroundScheduler()
