@@ -1,9 +1,13 @@
 import os
+import json
 import feedparser
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    FlexSendMessage
+)
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 
@@ -36,67 +40,76 @@ def callback():
 
     return 'OK'
 
-def send_flex_menu(reply_token):
-    flex_message = FlexSendMessage(
-        alt_text="📊 財經功能選單",
-        contents={
-            "type": "bubble",
-            "hero": {
-                "type": "image",
-                "url": "https://i.imgur.com/f7cB9gE.png",
-                "size": "full",
-                "aspectRatio": "20:13",
-                "aspectMode": "cover"
-            },
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": "📊 財經功能選單", "weight": "bold", "size": "lg", "margin": "md"},
-                    {"type": "text", "text": "請選擇你想要的功能 👇", "size": "sm", "color": "#666666", "wrap": True},
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "margin": "lg",
-                        "spacing": "sm",
-                        "contents": [
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "📰 今日新聞", "text": "今日新聞"},
-                                "style": "primary"
-                            },
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "📈 市場資訊", "text": "市場資訊"},
-                                "style": "primary"
-                            },
-                            {
-                                "type": "button",
-                                "action": {"type": "message", "label": "📊 功能選單", "text": "功能"},
-                                "style": "secondary"
-                            }
-                        ]
+# Flex Message 功能選單卡片
+def get_function_menu():
+    menu = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "\U0001F4CA 財經功能選單",
+                    "weight": "bold",
+                    "size": "lg",
+                    "margin": "md"
+                },
+                {
+                    "type": "text",
+                    "text": "請選擇你想要的功能 \ud83d\udc47",
+                    "size": "sm",
+                    "color": "#888888",
+                    "margin": "sm"
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#00C300",
+                    "action": {
+                        "type": "message",
+                        "label": "\U0001F5BC 今日新聞",
+                        "text": "今日新聞"
                     }
-                ]
-            }
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#00C300",
+                    "action": {
+                        "type": "message",
+                        "label": "\U0001F4C8 市場資訊",
+                        "text": "市場資訊"
+                    }
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "action": {
+                        "type": "message",
+                        "label": "\U0001F4CA 功能選單",
+                        "text": "功能"
+                    }
+                }
+            ]
         }
-    )
-    line_bot_api.reply_message(reply_token, flex_message)
+    }
+    return FlexSendMessage(alt_text="功能選單", contents=menu)
 
 # 處理訊息事件
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
 
-    # 回覆功能選單
-    if text in ["功能", "選單", "？"]:
-        send_flex_menu(event.reply_token)
-        return
+    # 顯示功能選單 Flex Message（自動觸發）
+    if text.lower() in ["功能", "選單", "？", "hi", "你好"]:
+        line_bot_api.reply_message(
+            event.reply_token,
+            get_function_menu()
+        )
     elif text == "今日新聞":
         fetch_and_send_news(preview=True, reply_token=event.reply_token)
-        return
     else:
-        # 回覆原本的「你說的是」
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=f"你說的是：{text}")
@@ -114,27 +127,26 @@ def fetch_and_send_news(preview=False, reply_token=None):
         "鉅亨網台股新聞": "https://www.cnyes.com/rss/cat/tw_stock"
     }
 
-    for source, rss_url in rss_sources.items():
+    for source_name, rss_url in rss_sources.items():
         feed = feedparser.parse(rss_url)
-        entries = feed.entries[:5]  # 每來源最多 5 則
-        messages = [f"📌【{source}】"]
+        entries = feed.entries[:3]
+        messages = [f"【{source_name}】"]
         for entry in entries:
-            messages.append(f"・{entry.title}\n{entry.link}")
-
-        full_message = "\n\n".join(messages)
+            messages.append(f"\u25AA {entry.title}\n{entry.link}")
+        final_msg = '\n\n'.join(messages)
 
         if preview and reply_token:
-            line_bot_api.reply_message(reply_token, TextSendMessage(text=full_message))
+            line_bot_api.reply_message(reply_token, TextSendMessage(text=final_msg))
         else:
             for gid in group_ids:
                 try:
-                    line_bot_api.push_message(gid, TextSendMessage(text=full_message))
+                    line_bot_api.push_message(gid, TextSendMessage(text=final_msg))
                 except Exception as e:
                     print(f"❌ 推播到 {gid} 發生錯誤：{e}")
 
 # 啟動排程器
 scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)  # 早上 8:30 & 晚上 19:30
+scheduler.add_job(fetch_and_send_news, 'cron', hour='0,11', minute=30)  # 台灣時間 8:30、19:30 對應 UTC
 scheduler.start()
 
 @app.route("/", methods=['GET'])
