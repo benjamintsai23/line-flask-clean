@@ -2,28 +2,26 @@ import os
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage, SourceGroup
-from dotenv import load_dotenv
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
-# 載入環境變數
-load_dotenv()
-line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
-
-# 檢查環境變數
-if not line_channel_access_token or not line_channel_secret:
-    raise ValueError("請確認已正確設置 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET")
-
-# 初始化 Flask 與 LINE API
 app = Flask(__name__)
-line_bot_api = LineBotApi(line_channel_access_token)
-handler = WebhookHandler(line_channel_secret)
+
+# 從環境變數中獲取 LINE 的 Channel Access Token 和 Channel Secret
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
+
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 @app.route("/webhook", methods=['POST'])
 def callback():
+    # 獲取 LINE 平台傳來的簽名
     signature = request.headers['X-Line-Signature']
+
+    # 獲取請求的主體內容
     body = request.get_data(as_text=True)
 
+    # 處理 webhook 體中的事件
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
@@ -31,25 +29,14 @@ def callback():
 
     return 'OK'
 
-# 處理文字訊息
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_text = event.message.text
-
-    # 如果是群組訊息
-    if isinstance(event.source, SourceGroup):
-        group_id = event.source.group_id
-        print(f"✅ 來自群組的訊息，group_id 是：{group_id}")
-        reply = f"你說的是：{user_text}"
-    else:
-        reply = f"你說的是：{user_text}"
-
+    # 回應使用者傳來的訊息
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply)
+        TextSendMessage(text=event.message.text)
     )
 
-# 啟動 Flask 應用
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # 在本地開發環境中使用 Flask 內建的開發伺服器
+    app.run(host='0.0.0.0', port=5000)
