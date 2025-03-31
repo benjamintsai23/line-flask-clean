@@ -3,11 +3,10 @@ import feedparser
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
-)
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
+from pytz import timezone  # ✅ 新增
 
 # 載入 .env 環境變數
 load_dotenv()
@@ -38,82 +37,28 @@ def callback():
 
     return 'OK'
 
-# Flex Message 選單樣板
-menu_flex = {
-    "type": "bubble",
-    "body": {
-        "type": "box",
-        "layout": "vertical",
-        "spacing": "md",
-        "contents": [
-            {
-                "type": "text",
-                "text": "📊 財經小幫手選單",
-                "size": "xl",
-                "weight": "bold",
-                "color": "#1E2F97"
-            },
-            {
-                "type": "separator"
-            },
-            {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "sm",
-                "contents": [
-                    {
-                        "type": "button",
-                        "style": "primary",
-                        "color": "#1E2F97",
-                        "action": {
-                            "type": "message",
-                            "label": "📰 今日新聞",
-                            "text": "今日新聞"
-                        }
-                    },
-                    {
-                        "type": "button",
-                        "style": "primary",
-                        "color": "#1E2F97",
-                        "action": {
-                            "type": "message",
-                            "label": "📈 即時股價",
-                            "text": "查股價"
-                        }
-                    },
-                    {
-                        "type": "button",
-                        "style": "secondary",
-                        "action": {
-                            "type": "message",
-                            "label": "🛠 工具選單",
-                            "text": "功能"
-                        }
-                    }
-                ]
-            }
-        ]
-    }
-}
-
 # 處理訊息事件
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
 
-    # 回覆 Flex 選單
+    # 回覆功能選單
     if text in ["功能", "選單", "？"]:
+        menu = """📊 LINE 財經群組功能選單：
+1️⃣ 功能：顯示這個選單
+2️⃣ 每天推播最新財經新聞（早上 8:30、晚上 19:30）
+
+（更多功能即將加入...）"""
         line_bot_api.reply_message(
             event.reply_token,
-            FlexSendMessage(alt_text="📊 財經選單", contents=menu_flex)
+            TextSendMessage(text=menu)
         )
-        return
-
-    # 回覆原本的「你說的是」
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=f"你說的是：{text}")
-    )
+    else:
+        # 回覆原本的「你說的是」
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"你說的是：{text}")
+        )
 
     # 顯示群組 ID（幫你記錄用）
     if event.source.type == "group":
@@ -122,27 +67,30 @@ def handle_message(event):
         print("✅ 已收到群組訊息，Group ID：", group_id)
 
 # 抓取新聞並推播
-
 def fetch_and_send_news():
-    rss_list = [
-        "https://tw.news.yahoo.com/rss/finance",
-        "https://www.cnyes.com/rss/cat/tw_stock"
-    ]
+    rss_sources = {
+        "Yahoo 財經": "https://tw.news.yahoo.com/rss/finance",
+        "鉅亨網台股": "https://www.cnyes.com/rss/cat/tw_stock"
+    }
 
-    for rss_url in rss_list:
+    for source_name, rss_url in rss_sources.items():
         feed = feedparser.parse(rss_url)
-        entries = feed.entries[:5]  # 每來源最多 5 則
-        for entry in entries:
-            msg = f"{entry.title}\n{entry.link}"
+        entries = feed.entries[:6]  # 每來源最多 6 則
+        if entries:
+            news_block = [f"📢【{source_name}】今日焦點新聞"]
+            for entry in entries:
+                news_block.append(f"🔹 {entry.title}\n👉 {entry.link}")
+            msg = "\n\n".join(news_block)
             for gid in group_ids:
                 try:
                     line_bot_api.push_message(gid, TextSendMessage(text=msg))
                 except Exception as e:
                     print(f"❌ 推播到 {gid} 發生錯誤：{e}")
 
-# 啟動排程器
-scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)  # 早上 8:30 & 晚上 19:30
+# ✅ 設定時區為台灣
+tz = timezone('Asia/Taipei')
+scheduler = BackgroundScheduler(timezone=tz)
+scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)  # 台灣早上 8:30 & 晚上 19:30
 scheduler.start()
 
 @app.route("/", methods=['GET'])
