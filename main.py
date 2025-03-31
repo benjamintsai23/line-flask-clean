@@ -45,18 +45,23 @@ def handle_message(event):
     # 印出來源類型
     print("🔍 來源類型：", event.source.type)
 
-    # 如果來自群組，紀錄群組 ID 並寫入檔案
+    # 如果來自群組，紀錄群組 ID 並主動回傳
     if event.source.type == "group":
         group_id = event.source.group_id
-        group_ids.add(group_id)
-        print("✅ 已收到群組訊息，Group ID：", group_id)
-
-        # 寫入 group_id.txt
-        try:
+        if group_id not in group_ids:
+            group_ids.add(group_id)
             with open("group_id.txt", "a") as f:
                 f.write(group_id + "\n")
+
+        print("✅ 已收到群組訊息，Group ID：", group_id)
+
+        try:
+            line_bot_api.push_message(
+                group_id,
+                TextSendMessage(text=f"✅ 這是你的 Group ID：\n{group_id}")
+            )
         except Exception as e:
-            print("❌ 無法寫入 group_id.txt：", e)
+            print(f"❌ 回傳 Group ID 發生錯誤：{e}")
 
 # 抓取新聞並推播
 def fetch_and_send_news():
