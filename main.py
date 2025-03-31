@@ -21,9 +21,9 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(line_channel_access_token)
 handler = WebhookHandler(line_channel_secret)
 
-# 暫存群組 ID 與訂閱用戶 ID
+# 暫存群組 ID 與 訂閱用戶 ID
 group_ids = set()
-subscribed_users = set()
+subscriber_user_ids = set()
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -42,74 +42,84 @@ def callback():
 def handle_message(event):
     text = event.message.text.strip()
 
+    # 功能選單
+    if text in ["功能", "選單", "？"]:
+        menu = """📊 LINE 財經群組功能選單：
+1️⃣ 功能：顯示這個選單
+2️⃣ 每天推播最新財經新聞（早上 8:30、晚上 19:30）
+3️⃣ 私訊「我要訂閱」可接收個人新聞通知
+（更多功能即將加入...）"""
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=menu)
+        )
+        return
+
+    # 訂閱新聞（限私訊）
+    if text == "我要訂閱":
+        if event.source.type == "user":
+            user_id = event.source.user_id
+            subscriber_user_ids.add(user_id)
+            print("✅ 已加入訂閱名單 User ID：", user_id)
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="✅ 你已成功訂閱新聞推播！")
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ 請私訊我「我要訂閱」才能收到個人通知！")
+            )
+        return
+
+    # 預設回覆
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=f"你說的是：{text}")
+    )
+
     # 記錄群組 ID
     if event.source.type == "group":
         group_id = event.source.group_id
         group_ids.add(group_id)
         print("✅ 已收到群組訊息，Group ID：", group_id)
 
-    # 記錄訂閱者 user_id
-    elif event.source.type == "user" and text == "我要訂閱":
-        user_id = event.source.user_id
-        subscribed_users.add(user_id)
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="✅ 已完成訂閱，您將每日收到財經新聞通知。")
-        )
-        print("📝 新訂閱者：", user_id)
-        return
+# 抓取新聞並推播
 
-    # 回覆功能選單
-    if text in ["功能", "選單", "？"]:
-        menu = """📊 LINE 財經群組功能選單：
-1️⃣ 功能：顯示這個選單
-2️⃣ 每天推播最新財經新聞（早上 8:30、晚上 19:30）
-3️⃣ 私訊『我要訂閱』可接收個人新聞通知
-（更多功能即將加入...）"""
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=menu)
-        )
-    else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"你說的是：{text}")
-        )
-
-# 抓取新聞並推播（群組與訂閱者）
 def fetch_and_send_news():
     rss_list = [
-        ("Yahoo 財經", "https://tw.news.yahoo.com/rss/finance"),
-        ("鉅亨網台股", "https://www.cnyes.com/rss/cat/tw_stock")
+        "https://tw.news.yahoo.com/rss/finance",
+        "https://www.cnyes.com/rss/cat/tw_stock"
     ]
 
-    for title, rss_url in rss_list:
+    for rss_url in rss_list:
         feed = feedparser.parse(rss_url)
-        entries = feed.entries[:6]  # 每來源最多 6 則
-        if not entries:
-            continue
-        
-        message = f"📢 今日 {title} 精選新聞：\n\n"
-        for entry in entries:
-            message += f"• {entry.title}\n{entry.link}\n\n"
+        entries = feed.entries[:5]  # 每來源最多 5 則
+        if 'yahoo' in rss_url:
+            msg_header = "📌 Yahoo 財經 今日新聞：\n"
+        else:
+            msg_header = "📌 鉅亨網台股 今日新聞：\n"
 
-        # 推播至群組
+        msg_body = "\n".join([f"・{entry.title}" for entry in entries])
+        msg = msg_header + msg_body
+
+        # 群組推播
         for gid in group_ids:
             try:
-                line_bot_api.push_message(gid, TextSendMessage(text=message))
+                line_bot_api.push_message(gid, TextSendMessage(text=msg))
             except Exception as e:
-                print(f"❌ 推播到群組 {gid} 發生錯誤：{e}")
+                print(f"❌ 推播到 {gid} 發生錯誤：{e}")
 
-        # 推播至訂閱者
-        for uid in subscribed_users:
+        # 個人推播
+        for uid in subscriber_user_ids:
             try:
-                line_bot_api.push_message(uid, TextSendMessage(text=message))
+                line_bot_api.push_message(uid, TextSendMessage(text=msg))
             except Exception as e:
                 print(f"❌ 推播到訂閱者 {uid} 發生錯誤：{e}")
 
 # 啟動排程器
 scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)
+scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)  # 早上 8:30 & 晚上 19:30
 scheduler.start()
 
 @app.route("/", methods=['GET'])
