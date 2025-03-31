@@ -21,8 +21,11 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(line_channel_access_token)
 handler = WebhookHandler(line_channel_secret)
 
-# 暫存群組 ID
-group_ids = set()
+# ➤ 固定推播目標群組 ID
+# 可加入多個群組 ID
+group_ids = {
+    "Cf0622bbc0d685056530f33f54a600b06"
+}
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -42,28 +45,14 @@ def handle_message(event):
     text = event.message.text
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
 
-    # 印出來源類型
-    print("🔍 來源類型：", event.source.type)
-
-    # 如果來自群組，紀錄群組 ID 並主動回傳
+    # 如果來自群組，回傳 Group ID（測試用）
     if event.source.type == "group":
         group_id = event.source.group_id
-        if group_id not in group_ids:
-            group_ids.add(group_id)
-            with open("group_id.txt", "a") as f:
-                f.write(group_id + "\n")
-
-        print("✅ 已收到群組訊息，Group ID：", group_id)
-
-        try:
-            line_bot_api.push_message(
-                group_id,
-                TextSendMessage(text=f"✅ 這是你的 Group ID：\n{group_id}")
-            )
-        except Exception as e:
-            print(f"❌ 回傳 Group ID 發生錯誤：{e}")
+        reply = f"✅ 這是你的 Group ID：\n{group_id}"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 # 抓取新聞並推播
+
 def fetch_and_send_news():
     rss_list = [
         "https://tw.news.yahoo.com/rss/finance",
