@@ -24,9 +24,9 @@ handler = WebhookHandler(line_channel_secret)
 # 暫存群組 ID
 group_ids = set()
 
-@app.route("/webhook", methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def callback():
-    signature = request.headers.get('X-Line-Signature')
+    signature = request.headers.get("X-Line-Signature")
     body = request.get_data(as_text=True)
 
     try:
@@ -34,17 +34,21 @@ def callback():
     except InvalidSignatureError:
         abort(400)
 
-    return 'OK'
+    return "OK"
 
-# 處理訊息事件
+# 處理文字訊息事件
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
-# 印出來源類型
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=f"你說的是：{text}")
+    )
+
+    # 印出來源類型
     print("🔍 來源類型：", event.source.type)
-    
-    # 如果來自群組，紀錄群組 ID
+
+    # 如果是群組訊息，記錄 group ID
     if event.source.type == "group":
         group_id = event.source.group_id
         group_ids.add(group_id)
@@ -59,7 +63,7 @@ def fetch_and_send_news():
 
     for rss_url in rss_list:
         feed = feedparser.parse(rss_url)
-        entries = feed.entries[:5]  # 每來源最多 5 則
+        entries = feed.entries[:5]
         for entry in entries:
             msg = f"{entry.title}\n{entry.link}"
             for gid in group_ids:
@@ -68,12 +72,12 @@ def fetch_and_send_news():
                 except Exception as e:
                     print(f"❌ 推播到 {gid} 發生錯誤：{e}")
 
-# 啟動排程器
+# 啟動排程器（每天 8:30 & 19:30）
 scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)  # 早上 8:30 & 晚上 19:30
+scheduler.add_job(fetch_and_send_news, "cron", hour="8,19", minute=30)
 scheduler.start()
 
-@app.route("/", methods=['GET'])
+@app.route("/", methods=["GET"])
 def index():
     return "LINE Bot Webhook 伺服器運行中！"
 
