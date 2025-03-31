@@ -21,11 +21,8 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(line_channel_access_token)
 handler = WebhookHandler(line_channel_secret)
 
-# ➤ 固定推播目標群組 ID
-# 可加入多個群組 ID
-group_ids = {
-    "Cf0622bbc0d685056530f33f54a600b06"
-}
+# 暫存群組 ID
+group_ids = set()
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -42,14 +39,31 @@ def callback():
 # 處理訊息事件
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    text = event.message.text
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
+    text = event.message.text.strip()
 
-    # 如果來自群組，回傳 Group ID（測試用）
+    # 回覆功能選單
+    if text in ["功能", "選單", "？"]:
+        menu = """📊 LINE 財經群組功能選單：
+1️⃣ 功能：顯示這個選單
+2️⃣ 每天推播最新財經新聞（早上 8:30、晚上 19:30）
+
+（更多功能即將加入...）"""
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=menu)
+        )
+    else:
+        # 回覆原本的「你說的是」
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"你說的是：{text}")
+        )
+
+    # 顯示群組 ID（幫你記錄用）
     if event.source.type == "group":
         group_id = event.source.group_id
-        reply = f"✅ 這是你的 Group ID：\n{group_id}"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        group_ids.add(group_id)
+        print("✅ 已收到群組訊息，Group ID：", group_id)
 
 # 抓取新聞並推播
 
