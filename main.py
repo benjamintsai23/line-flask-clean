@@ -5,72 +5,79 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from dotenv import load_dotenv
 
-# 讀取 .env 環境變數
-load_dotenv()
-
-# 設定 LINE 的 access token 和 secret
+# ✅ 從環境變數取得 Channel Access Token 和 Channel Secret
 line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
 
-if not line_channel_access_token:
-    raise ValueError("LINE_CHANNEL_ACCESS_TOKEN is missing!")
-if not line_channel_secret:
-    raise ValueError("LINE_CHANNEL_SECRET is missing!")
+if not line_channel_access_token or not line_channel_secret:
+    raise ValueError("❌ 請確認環境變數 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET 是否正確設定！")
 
-# Flask app 與 LINE 處理器
+# ✅ 初始化 Flask 和 LINE Bot
 app = Flask(__name__)
 line_bot_api = LineBotApi(line_channel_access_token)
 handler = WebhookHandler(line_channel_secret)
 
-# 接收 LINE webhook
+# ✅ 接收 Webhook 訊息處理
 @app.route("/webhook", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-
     return 'OK'
 
-# 處理用戶訊息
+# ✅ 接收訊息時回傳原文字，並印出群組 ID（方便你取得 group_id）
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    print("收到訊息來源：", event.source)
-    user_text = event.message.text
-    reply = f"你說的是：{user_text}"
+    print("🔍 收到訊息：", event.message.text)
+    print("📦 訊息來源：", event.source)
+
+    # 如果是群組訊息就印出 group_id
+    if hasattr(event.source, 'group_id'):
+        print("✅ 群組 ID：", event.source.group_id)
+
+    reply_text = f"你說的是：{event.message.text}"
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply)
+        TextSendMessage(text=reply_text)
     )
 
-# 從 RSS 擷取新聞並送出
-def fetch_rss_and_send():
-    url = "https://tw.news.yahoo.com/rss/finance"
-    news = feedparser.parse(url).entries[:5]  # 只取前 5 條
+# ✅ RSS 來源設定（Yahoo & 鉅亨網）
+RSS_FEEDS = [
+    "https://tw.news.yahoo.com/rss/finance",
+    "https://www.cnyes.com/rss/cat/tw_stock"
+]
 
-    for entry in news:
-        title = entry.title
-        link = entry.link
-        message = f"{title}\n{link}"
+# ✅ 要推播的 LINE 群組 ID（請自行替換成你抓到的 group_id）
+GROUP_ID = "請替換為你自己的群組 ID"
 
-        line_bot_api.push_message(
-            os.getenv("LINE_GROUP_ID", "<YOUR_GROUP_ID_HERE>"),
-            TextSendMessage(text=message)
-        )
+# ✅ 自動推播新聞
+def fetch_and_push_news():
+    for url in RSS_FEEDS:
+        feed = feedparser.parse(url)
+        for entry in feed.entries[:3]:  # 每則只取 3 筆
+            title = entry.title
+            link = entry.link
+            message = f"{title}\n{link}"
+            try:
+                line_bot_api.push_message(
+                    GROUP_ID,
+                    TextSendMessage(text=message)
+                )
+                print("✅ 推播成功：", title)
+            except Exception as e:
+                print("❌ 推播失敗：", e)
 
-# 啟用定時任務
-scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_rss_and_send, 'interval', hours=1)  # 每小時
+# ✅ 定時任務排程（每天 8:30、19:30 各推播一次）
+scheduler = BackgroundScheduler(timezone="Asia/Taipei")
+scheduler.add_job(fetch_and_push_news, 'cron', hour=8, minute=30)
+scheduler.add_job(fetch_and_push_news, 'cron', hour=19, minute=30)
 scheduler.start()
 
-# 啟動 app (透過 Render 自動接受 PORT)
+# ✅ 啟動 Flask
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))  # Render 用不到 port=5000
     app.run(host="0.0.0.0", port=port)
-# 手動觸發一次新聞推播（部署後自動刪掉）
-fetch_rss_and_send()
