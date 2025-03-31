@@ -5,9 +5,7 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
-    URIAction, MessageAction, BubbleContainer, BoxComponent, ButtonComponent,
-    TextComponent
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -37,8 +35,8 @@ if os.path.exists(SUBSCRIBERS_FILE):
 else:
     personal_subscribers = set()
 
-# 管理者 LINE ID（請換成你自己的）
-ADMIN_USER_ID = "你的 LINE user_id"
+# 管理者 LINE ID（請自行替換）
+ADMIN_USER_ID = "jamin-tsai"
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -57,7 +55,7 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
-    # 回覆功能選單
+    # Flex 功能選單
     if text in ["功能", "選單", "？"]:
         flex_message = FlexSendMessage(
             alt_text="📊 財經功能選單",
@@ -88,7 +86,7 @@ def handle_message(event):
 
     # 查詢訂閱名單
     if text == "訂閱名單":
-        if user_id == ADMIN_USER_ID:jamin-tsai
+        if user_id == ADMIN_USER_ID:
             if personal_subscribers:
                 msg = "📋 目前訂閱用戶名單：\n" + "\n".join([f"{i+1}. {uid}" for i, uid in enumerate(personal_subscribers)])
             else:
@@ -99,7 +97,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
         return
 
-    # 處理個人訂閱請求
+    # 處理個人訂閱
     if text == "我要訂閱":
         if event.source.type == "user":
             personal_subscribers.add(user_id)
@@ -110,14 +108,16 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 請私訊我『我要訂閱』才能收到個人通知！"))
         return
 
-    # 一般回應
+    # 一般訊息回應
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
 
+    # 群組 ID 紀錄
     if event.source.type == "group":
         group_id = event.source.group_id
         group_ids.add(group_id)
         print("✅ 已收到群組訊息，Group ID：", group_id)
 
+# 抓取新聞並推播
 def fetch_and_send_news():
     rss_list = [
         ("Yahoo 財經", "https://tw.news.yahoo.com/rss/finance"),
@@ -142,6 +142,7 @@ def fetch_and_send_news():
             except Exception as e:
                 print(f"❌ 個人推播失敗：{e}")
 
+# 啟動定時任務
 scheduler = BackgroundScheduler()
 scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)
 scheduler.start()
