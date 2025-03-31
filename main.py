@@ -1,11 +1,14 @@
 import os
 import json
 import feedparser
+import requests
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
+    URIAction, MessageAction, BubbleContainer, BoxComponent, ButtonComponent,
+    TextComponent
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -35,8 +38,8 @@ if os.path.exists(SUBSCRIBERS_FILE):
 else:
     personal_subscribers = set()
 
-# 管理者 LINE ID（請自行替換）
-ADMIN_USER_ID = "jamin-tsai"
+# 管理者 LINE ID（請換成你自己的）
+ADMIN_USER_ID = "你的 LINE user_id"
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -55,7 +58,6 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
-    # Flex 功能選單
     if text in ["功能", "選單", "？"]:
         flex_message = FlexSendMessage(
             alt_text="📊 財經功能選單",
@@ -84,7 +86,27 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, flex_message)
         return
 
-    # 查詢訂閱名單
+    if text == "今日新聞":
+        messages = fetch_today_news()
+        for msg in messages:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+        return
+
+    if text == "市場資訊":
+        tpex_api = "https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX"
+        try:
+            res = requests.get(tpex_api, timeout=5)
+            data = res.json()
+            idx = next((item for item in data if item.get("code") == ""), None)
+            if idx:
+                msg = f"📈 加權指數：{idx['tseIndex']}, 漲跌：{idx['change']}"
+            else:
+                msg = "找不到即時市場資訊。"
+        except Exception as e:
+            msg = f"❌ 查詢失敗：{e}"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+        return
+
     if text == "訂閱名單":
         if user_id == ADMIN_USER_ID:
             if personal_subscribers:
@@ -93,11 +115,9 @@ def handle_message(event):
                 msg = "目前尚無任何訂閱用戶。"
         else:
             msg = "🚫 你沒有權限查看訂閱名單喔！"
-
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
         return
 
-    # 處理個人訂閱
     if text == "我要訂閱":
         if event.source.type == "user":
             personal_subscribers.add(user_id)
@@ -108,29 +128,30 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 請私訊我『我要訂閱』才能收到個人通知！"))
         return
 
-    # 一般訊息回應
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
 
-    # 群組 ID 紀錄
     if event.source.type == "group":
         group_id = event.source.group_id
         group_ids.add(group_id)
         print("✅ 已收到群組訊息，Group ID：", group_id)
 
-# 抓取新聞並推播
-def fetch_and_send_news():
+def fetch_today_news():
     rss_list = [
         ("Yahoo 財經", "https://tw.news.yahoo.com/rss/finance"),
         ("鉅亨網台股", "https://www.cnyes.com/rss/cat/tw_stock")
     ]
-
+    messages = []
     for source_name, rss_url in rss_list:
         feed = feedparser.parse(rss_url)
         entries = feed.entries[:5]
-        if not entries:
-            continue
+        if entries:
+            msg = f"📌 {source_name} 今日新聞：\n" + "\n".join([f"・{entry.title}" for entry in entries])
+            messages.append(msg)
+    return messages
 
-        msg = f"📌 {source_name} 今日新聞：\n" + "\n".join([f"・{entry.title}" for entry in entries])
+def fetch_and_send_news():
+    messages = fetch_today_news()
+    for msg in messages:
         for gid in group_ids:
             try:
                 line_bot_api.push_message(gid, TextSendMessage(text=msg))
@@ -142,7 +163,6 @@ def fetch_and_send_news():
             except Exception as e:
                 print(f"❌ 個人推播失敗：{e}")
 
-# 啟動定時任務
 scheduler = BackgroundScheduler()
 scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)
 scheduler.start()
