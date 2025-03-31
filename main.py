@@ -41,7 +41,9 @@ def callback():
 def handle_message(event):
     text = event.message.text
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
-
+# 印出來源類型
+    print("🔍 來源類型：", event.source.type)
+    
     # 如果來自群組，紀錄群組 ID
     if event.source.type == "group":
         group_id = event.source.group_id
