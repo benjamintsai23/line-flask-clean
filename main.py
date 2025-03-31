@@ -3,7 +3,10 @@ import feedparser
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    FlexSendMessage, BubbleContainer, BoxComponent, TextComponent, ButtonComponent, URIAction
+)
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 
@@ -36,24 +39,44 @@ def callback():
 
     return 'OK'
 
+# Flex 主選單
+flex_menu = FlexSendMessage(
+    alt_text="📊 功能選單",
+    contents=BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=[
+                TextComponent(text="📊 財經群組功能選單", weight="bold", size="lg"),
+                BoxComponent(
+                    layout="vertical",
+                    margin="md",
+                    spacing="sm",
+                    contents=[
+                        ButtonComponent(style="link", height="sm", action=URIAction(label="Yahoo 財經", uri="https://tw.news.yahoo.com/rss/finance")),
+                        ButtonComponent(style="link", height="sm", action=URIAction(label="鉅亨網台股", uri="https://www.cnyes.com/rss/cat/tw_stock")),
+                        ButtonComponent(style="link", height="sm", action=URIAction(label="查看功能說明", uri="https://line.me")),
+                    ]
+                )
+            ]
+        )
+    )
+)
+
 # 處理訊息事件
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
 
-    # 回覆功能選單
+    # 回覆功能選單或 Flex
     if text in ["功能", "選單", "？"]:
-        menu = """📊 LINE 財經群組功能選單：
-1️⃣ 功能：顯示這個選單
-2️⃣ 每天推播最新財經新聞（早上 8:30、晚上 19:30）
-
-（更多功能即將加入...）"""
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=menu)
+            [
+                TextSendMessage(text="請點選下方功能："),
+                flex_menu
+            ]
         )
     else:
-        # 回覆原本的「你說的是」
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=f"你說的是：{text}")
@@ -75,7 +98,7 @@ def fetch_and_send_news():
 
     for rss_url in rss_list:
         feed = feedparser.parse(rss_url)
-        entries = feed.entries[:5]  # 每來源最多 5 則
+        entries = feed.entries[:6]  # 每來源最多 6 則
         for entry in entries:
             msg = f"{entry.title}\n{entry.link}"
             for gid in group_ids:
