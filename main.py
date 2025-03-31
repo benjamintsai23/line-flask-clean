@@ -6,9 +6,7 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
-    URIAction, MessageAction, BubbleContainer, BoxComponent, ButtonComponent,
-    TextComponent
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -37,9 +35,6 @@ if os.path.exists(SUBSCRIBERS_FILE):
         personal_subscribers = set(json.load(f))
 else:
     personal_subscribers = set()
-
-# 管理者 LINE ID（請換成你自己的）
-ADMIN_USER_ID = "jamin-tsai"
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -86,35 +81,8 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, flex_message)
         return
 
-    if text == "今日新聞":
-        messages = fetch_today_news()
-        for msg in messages:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
-        return
-
     if text == "市場資訊":
-        tpex_api = "https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX"
-        try:
-            res = requests.get(tpex_api, timeout=5)
-            data = res.json()
-            idx = next((item for item in data if item.get("code") == ""), None)
-            if idx:
-                msg = f"📈 加權指數：{idx['tseIndex']}, 漲跌：{idx['change']}"
-            else:
-                msg = "找不到即時市場資訊。"
-        except Exception as e:
-            msg = f"❌ 查詢失敗：{e}"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
-        return
-
-    if text == "訂閱名單":
-        if user_id == ADMIN_USER_ID:
-            if personal_subscribers:
-                msg = "📋 目前訂閱用戶名單：\n" + "\n".join([f"{i+1}. {uid}" for i, uid in enumerate(personal_subscribers)])
-            else:
-                msg = "目前尚無任何訂閱用戶。"
-        else:
-            msg = "🚫 你沒有權限查看訂閱名單喔！"
+        msg = get_market_info()
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
         return
 
@@ -135,23 +103,19 @@ def handle_message(event):
         group_ids.add(group_id)
         print("✅ 已收到群組訊息，Group ID：", group_id)
 
-def fetch_today_news():
+def fetch_and_send_news():
     rss_list = [
         ("Yahoo 財經", "https://tw.news.yahoo.com/rss/finance"),
         ("鉅亨網台股", "https://www.cnyes.com/rss/cat/tw_stock")
     ]
-    messages = []
+
     for source_name, rss_url in rss_list:
         feed = feedparser.parse(rss_url)
         entries = feed.entries[:5]
-        if entries:
-            msg = f"📌 {source_name} 今日新聞：\n" + "\n".join([f"・{entry.title}" for entry in entries])
-            messages.append(msg)
-    return messages
+        if not entries:
+            continue
 
-def fetch_and_send_news():
-    messages = fetch_today_news()
-    for msg in messages:
+        msg = f"📌 {source_name} 今日新聞：\n" + "\n".join([f"・{entry.title}" for entry in entries])
         for gid in group_ids:
             try:
                 line_bot_api.push_message(gid, TextSendMessage(text=msg))
@@ -162,6 +126,15 @@ def fetch_and_send_news():
                 line_bot_api.push_message(uid, TextSendMessage(text=msg))
             except Exception as e:
                 print(f"❌ 個人推播失敗：{e}")
+
+def get_market_info():
+    try:
+        response = requests.get("https://tw.stock.yahoo.com")
+        text = response.text
+        index = text.split('加權指數')[1].split('</span>')[0].split('>')[-1]
+        return f"📈 台股加權指數：{index}（資料來源：Yahoo）"
+    except Exception as e:
+        return "⚠️ 無法取得市場資訊，請稍後再試。"
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)
