@@ -1,55 +1,74 @@
 import os
 import json
-import feedparser
+import requests
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
-    URIAction, MessageAction, BubbleContainer, BoxComponent, ButtonComponent,
-    TextComponent
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
+import feedparser
 
-# 載入 .env 環境變數
 load_dotenv()
 
-# 取得 LINE Bot 憑證
 line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
-
-if not line_channel_access_token or not line_channel_secret:
-    raise ValueError("請確認已設定環境變數 LINE_CHANNEL_ACCESS_TOKEN 和 LINE_CHANNEL_SECRET")
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(line_channel_access_token)
 handler = WebhookHandler(line_channel_secret)
 
-# 暫存群組 ID 和訂閱者清單
+# 暫存群組 ID
 group_ids = set()
-SUBSCRIBERS_FILE = "subscribers.json"
 
-# 讀取訂閱者清單
-if os.path.exists(SUBSCRIBERS_FILE):
-    with open(SUBSCRIBERS_FILE, "r") as f:
-        personal_subscribers = set(json.load(f))
-else:
-    personal_subscribers = set()
+# 投資名言
+quotes = [
+    "投資最大的風險，是你不知道自己在做什麼。 — 巴菲特",
+    "別人恐懼時我貪婪，別人貪婪時我恐懼。 — 巴菲特",
+    "市場短期是投票機，長期是秤重機。 — 葛拉漢"
+]
 
-# 管理者 LINE ID（請換成你自己的）
-ADMIN_USER_ID = "你的 LINE user_id"
+# 推播新聞與名言
+scheduler = BackgroundScheduler()
+
+def fetch_news():
+    sources = [
+        ("Yahoo 財經", "https://tw.news.yahoo.com/rss/finance"),
+        ("鉅亨網台股", "https://www.cnyes.com/rss/cat/tw_stock")
+    ]
+    messages = []
+    for name, url in sources:
+        feed = feedparser.parse(url)
+        items = feed.entries[:5]
+        if items:
+            msg = f"\n📌 {name}：\n" + "\n".join(f"・{item.title}" for item in items)
+            messages.append(msg)
+    return messages
+
+@scheduler.scheduled_job('cron', hour='8,13', minute=30)
+def scheduled_push():
+    news = fetch_news()
+    quote = f"💬 今日投資名言：\n{quotes[0]}"
+    for gid in group_ids:
+        try:
+            for msg in news:
+                line_bot_api.push_message(gid, TextSendMessage(text=msg))
+            line_bot_api.push_message(gid, TextSendMessage(text=quote))
+        except Exception as e:
+            print(f"❌ 推播錯誤: {e}")
+
+scheduler.start()
 
 @app.route("/webhook", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-
     return 'OK'
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -57,110 +76,51 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
-    # 回覆功能選單
-    if text in ["功能", "選單", "？"]:
-        flex_message = FlexSendMessage(
-            alt_text="📊 財經功能選單",
-            contents={
-                "type": "bubble",
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {"type": "text", "text": "📊 財經功能選單", "weight": "bold", "size": "lg"},
-                        {"type": "text", "text": "請選擇你想要的功能 👇", "size": "sm", "margin": "md"}
-                    ]
-                },
-                "footer": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "spacing": "sm",
-                    "contents": [
-                        {"type": "button", "action": {"type": "message", "label": "📰 今日新聞", "text": "今日新聞"}, "style": "primary"},
-                        {"type": "button", "action": {"type": "message", "label": "📈 市場資訊", "text": "市場資訊"}, "style": "primary"},
-                        {"type": "button", "action": {"type": "message", "label": "📊 功能選單", "text": "功能"}, "style": "secondary"}
-                    ]
-                }
-            }
-        )
-        line_bot_api.reply_message(event.reply_token, flex_message)
-        return
-
-    # 查詢訂閱名單
-    if text == "訂閱名單":
-        if user_id == ADMIN_USER_ID:
-            if personal_subscribers:
-                msg = "📋 目前訂閱用戶名單：\n" + "\n".join([f"{i+1}. {uid}" for i, uid in enumerate(personal_subscribers)])
-            else:
-                msg = "目前尚無任何訂閱用戶。"
-        else:
-            msg = "🚫 你沒有權限查看訂閱名單喔！"
-
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
-        return
-
-    # 處理個人訂閱請求
-    if text == "我要訂閱":
-        if event.source.type == "user":
-            personal_subscribers.add(user_id)
-            with open(SUBSCRIBERS_FILE, "w") as f:
-                json.dump(list(personal_subscribers), f)
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✅ 你已成功訂閱！將會收到個人新聞通知。"))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 請私訊我『我要訂閱』才能收到個人通知！"))
-        return
-
-    # 一般回應
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
-
     if event.source.type == "group":
         group_id = event.source.group_id
         group_ids.add(group_id)
-        print("✅ 已收到群組訊息，Group ID：", group_id)
 
-def send_message_in_chunks(text, recipient):
-    # 每個推播訊息的最大字元數為 5000
-    MAX_LENGTH = 5000
-    # 拆分訊息
-    for i in range(0, len(text), MAX_LENGTH):
-        chunk = text[i:i + MAX_LENGTH]
-        line_bot_api.push_message(recipient, TextSendMessage(text=chunk))
+    if text in ["功能", "選單"]:
+        flex = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": "📊 財經選單", "weight": "bold", "size": "xl"},
+                    {"type": "text", "text": "選擇你要查的資訊：", "size": "sm", "margin": "md"}
+                ]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "button", "style": "primary", "action": {"type": "message", "label": "熱門股排行", "text": "熱門股排行"}},
+                    {"type": "button", "style": "primary", "action": {"type": "message", "label": "盤前快訊", "text": "盤前快訊"}},
+                    {"type": "button", "style": "primary", "action": {"type": "message", "label": "每日名言", "text": "每日名言"}}
+                ]
+            }
+        }
+        line_bot_api.reply_message(event.reply_token, FlexSendMessage("功能選單", contents=flex))
 
-def fetch_and_send_news():
-    rss_list = [
-        ("Yahoo 財經", "https://tw.news.yahoo.com/rss/finance"),
-        ("鉅亨網台股", "https://www.cnyes.com/rss/cat/tw_stock")
-    ]
+    elif text == "每日名言":
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=quotes[0]))
 
-    for source_name, rss_url in rss_list:
-        feed = feedparser.parse(rss_url)
-        entries = feed.entries[:5]
-        if not entries:
-            continue
+    elif text == "盤前快訊":
+        messages = fetch_news()
+        for msg in messages:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
 
-        msg = f"📌 {source_name} 今日新聞：\n" + "\n".join([f"・{entry.title}" for entry in entries])
-        
-        # 推送給群組
-        for gid in group_ids:
-            try:
-                send_message_in_chunks(msg, gid)
-            except Exception as e:
-                print(f"❌ 群組推播失敗：{e}")
+    elif text == "熱門股排行":
+        hot = "🔥 今日熱門股排行（模擬）:\n1. 台積電\n2. 鴻海\n3. 聯電\n4. 長榮\n5. 開發金"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=hot))
 
-        # 推送給訂閱的個人
-        for uid in personal_subscribers:
-            try:
-                send_message_in_chunks(msg, uid)
-            except Exception as e:
-                print(f"❌ 個人推播失敗：{e}")
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)
-scheduler.start()
+    else:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
 
 @app.route("/", methods=['GET'])
 def index():
-    return "LINE Bot Webhook 伺服器運行中！"
+    return "Line Bot 財經助手運行中"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
