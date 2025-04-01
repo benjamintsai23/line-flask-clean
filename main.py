@@ -1,12 +1,13 @@
 import os
 import json
 import feedparser
-import requests
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
+    URIAction, MessageAction, BubbleContainer, BoxComponent, ButtonComponent,
+    TextComponent
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -36,6 +37,9 @@ if os.path.exists(SUBSCRIBERS_FILE):
 else:
     personal_subscribers = set()
 
+# 管理者 LINE ID（請換成你自己的）
+ADMIN_USER_ID = "你的 LINE user_id"
+
 @app.route("/webhook", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature')
@@ -53,6 +57,7 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
+    # 回覆功能選單
     if text in ["功能", "選單", "？"]:
         flex_message = FlexSendMessage(
             alt_text="📊 財經功能選單",
@@ -81,11 +86,20 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, flex_message)
         return
 
-    if text == "市場資訊":
-        msg = get_market_info()
+    # 查詢訂閱名單
+    if text == "訂閱名單":
+        if user_id == ADMIN_USER_ID:
+            if personal_subscribers:
+                msg = "📋 目前訂閱用戶名單：\n" + "\n".join([f"{i+1}. {uid}" for i, uid in enumerate(personal_subscribers)])
+            else:
+                msg = "目前尚無任何訂閱用戶。"
+        else:
+            msg = "🚫 你沒有權限查看訂閱名單喔！"
+
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
         return
 
+    # 處理個人訂閱請求
     if text == "我要訂閱":
         if event.source.type == "user":
             personal_subscribers.add(user_id)
@@ -96,12 +110,21 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 請私訊我『我要訂閱』才能收到個人通知！"))
         return
 
+    # 一般回應
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
 
     if event.source.type == "group":
         group_id = event.source.group_id
         group_ids.add(group_id)
         print("✅ 已收到群組訊息，Group ID：", group_id)
+
+def send_message_in_chunks(text, recipient):
+    # 每個推播訊息的最大字元數為 5000
+    MAX_LENGTH = 5000
+    # 拆分訊息
+    for i in range(0, len(text), MAX_LENGTH):
+        chunk = text[i:i + MAX_LENGTH]
+        line_bot_api.push_message(recipient, TextSendMessage(text=chunk))
 
 def fetch_and_send_news():
     rss_list = [
@@ -116,25 +139,20 @@ def fetch_and_send_news():
             continue
 
         msg = f"📌 {source_name} 今日新聞：\n" + "\n".join([f"・{entry.title}" for entry in entries])
+        
+        # 推送給群組
         for gid in group_ids:
             try:
-                line_bot_api.push_message(gid, TextSendMessage(text=msg))
+                send_message_in_chunks(msg, gid)
             except Exception as e:
                 print(f"❌ 群組推播失敗：{e}")
+
+        # 推送給訂閱的個人
         for uid in personal_subscribers:
             try:
-                line_bot_api.push_message(uid, TextSendMessage(text=msg))
+                send_message_in_chunks(msg, uid)
             except Exception as e:
                 print(f"❌ 個人推播失敗：{e}")
-
-def get_market_info():
-    try:
-        response = requests.get("https://tw.stock.yahoo.com")
-        text = response.text
-        index = text.split('加權指數')[1].split('</span>')[0].split('>')[-1]
-        return f"📈 台股加權指數：{index}（資料來源：Yahoo）"
-    except Exception as e:
-        return "⚠️ 無法取得市場資訊，請稍後再試。"
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(fetch_and_send_news, 'cron', hour='8,19', minute=30)
