@@ -9,3 +9,4 @@ flask
 line-bot-sdk
 gunicorn
 pytz
+beautifulsoup4
