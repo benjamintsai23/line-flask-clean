@@ -1,21 +1,18 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import *
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import os
 
 app = Flask(__name__)
 
-# Channel access token & secret
-line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
-
-line_bot_api = LineBotApi(line_channel_access_token)
-handler = WebhookHandler(line_channel_secret)
+# 初始化 Line Bot
+line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
 @app.route("/")
 def home():
-    return "LINE Bot is running"
+    return "LINE Bot is running."
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -31,9 +28,17 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    msg = event.message.text
-    reply = f"你說的是：{msg}"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+    msg = event.message.text.strip()
+
+    if msg == "功能":
+        reply = "請點選下方功能選單喔！\n1️⃣ 今日新聞\n2️⃣ 市場資訊\n3️⃣ AI 股市觀點"
+    else:
+        reply = "收到：" + msg
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply)
+    )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
