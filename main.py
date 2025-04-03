@@ -7,7 +7,7 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, JoinEvent
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
@@ -87,6 +87,28 @@ def get_market_summary():
         print("市場資訊查詢失敗：", e)
         return "⚠️ 查詢失敗，請稍後再試。"
 
+# AI 股市觀點分析
+
+def get_trending_analysis():
+    yahoo_feed = feedparser.parse("https://tw.news.yahoo.com/rss/finance")
+    keywords = ["台積電", "AI", "大盤", "美元", "利率", "通膨"]
+    stats = {kw: 0 for kw in keywords}
+
+    for entry in yahoo_feed.entries[:10]:
+        for kw in keywords:
+            if kw in entry.title:
+                stats[kw] += 1
+
+    if sum(stats.values()) == 0:
+        return "📉 今日趨勢尚不明顯，持續觀察中..."
+
+    sorted_kw = sorted(stats.items(), key=lambda x: x[1], reverse=True)
+    result = "📈 AI 股市觀點：\n"
+    for kw, count in sorted_kw:
+        if count > 0:
+            result += f"• {kw} 出現 {count} 次\n"
+    return result
+
 # 定時推播
 scheduler = BackgroundScheduler()
 @scheduler.scheduled_job('cron', hour='8,19', minute=30)
@@ -113,6 +135,12 @@ def callback():
 
     return 'OK'
 
+# 新用戶加入群組時歡迎
+@handler.add(JoinEvent)
+def handle_join(event):
+    welcome = "👋 歡迎加入每日財經速報！\n輸入『功能』來查看完整功能選單喔～"
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=welcome))
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
@@ -137,7 +165,8 @@ def handle_message(event):
                     "spacing": "sm",
                     "contents": [
                         {"type": "button", "action": {"type": "message", "label": "📰 今日新聞", "text": "今日新聞"}},
-                        {"type": "button", "action": {"type": "message", "label": "📈 市場資訊", "text": "市場資訊"}}
+                        {"type": "button", "action": {"type": "message", "label": "📈 市場資訊", "text": "市場資訊"}},
+                        {"type": "button", "action": {"type": "message", "label": "📉 AI 股市觀點", "text": "AI 股市觀點"}}
                     ]
                 }
             }
@@ -152,6 +181,10 @@ def handle_message(event):
     elif text == "市場資訊":
         summary = get_market_summary()
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=summary))
+
+    elif text == "AI 股市觀點":
+        analysis = get_trending_analysis()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=analysis))
 
     else:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
