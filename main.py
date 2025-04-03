@@ -1,67 +1,37 @@
-import os
-import json
-import requests
-import feedparser
-from bs4 import BeautifulSoup
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
-    RichMenu, RichMenuArea, RichMenuBounds, URIAction, MessageAction
-)
-from apscheduler.schedulers.background import BackgroundScheduler
-from dotenv import load_dotenv
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+import os
 
-# === 載入環境變數 ===
-load_dotenv()
-line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
-
-if not line_channel_access_token or not line_channel_secret:
-    raise ValueError("請確認已設定 LINE_CHANNEL_ACCESS_TOKEN 與 LINE_CHANNEL_SECRET")
-
-# === 初始化 App ===
 app = Flask(__name__)
-line_bot_api = LineBotApi(line_channel_access_token)
-handler = WebhookHandler(line_channel_secret)
 
-# === 群組 ID 紀錄 ===
-group_ids = set()
+line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
-# === Rich Menu 圖片 ===
-RICH_MENU_IMAGE_PATH = "richmenu.png"
+@app.route("/")
+def home():
+    return "Webhook is working!"
 
-# === 設定 Rich Menu ===
-@app.before_first_request
-def setup_rich_menu():
+@app.route("/callback", methods=['POST'])
+def callback():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=True)
+
     try:
-        rich_menu = RichMenu(
-            size={"width": 2500, "height": 843},
-            selected=True,
-            name="財經主選單",
-            chat_bar_text="功能選單",
-            areas=[
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=0, y=0, width=833, height=843),
-                    action=MessageAction(label="今日新聞", text="今日新聞")
-                ),
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=834, y=0, width=833, height=843),
-                    action=MessageAction(label="市場資訊", text="市場資訊")
-                ),
-                RichMenuArea(
-                    bounds=RichMenuBounds(x=1667, y=0, width=833, height=843),
-                    action=MessageAction(label="AI 股市觀點", text="AI 股市觀點")
-                )
-            ]
-        )
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
 
-        rich_menu_id = line_bot_api.create_rich_menu(rich_menu)
-        with open(RICH_MENU_IMAGE_PATH, 'rb') as f:
-            line_bot_api.set_rich_menu_image(rich_menu_id, 'image/png', f)
-        line_bot_api.set_default_rich_menu(rich_menu_id)
-        print("✅ Rich Menu 已建立並啟用！")
-    except Exception as e:
-        print(f"❌ 建立 Rich Menu 失敗：{e}")
+    return 'OK'
 
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    reply = f"你說的是：{event.message.text}"
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply)
+    )
+
+if __name__ == "__main__":
+    app.run()
