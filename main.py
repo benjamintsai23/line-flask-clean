@@ -28,6 +28,9 @@ handler = WebhookHandler(line_channel_secret)
 # 暫存群組 ID 和訂閱者清單
 group_ids = set()
 
+# 定時推播新聞
+scheduler = BackgroundScheduler()
+
 # 自動推播函式
 def fetch_news():
     results = []
@@ -58,17 +61,35 @@ def fetch_news():
 
     return results
 
-# 定時推播
-scheduler = BackgroundScheduler()
+# AI 股市觀點產生器（等級一：關鍵字比對）
+def generate_market_insight():
+    feed = feedparser.parse("https://tw.news.yahoo.com/rss/finance")
+    if not feed.entries:
+        return None
+
+    keywords = ["台積電", "鴻海", "聯發科", "漲停", "減產", "庫藏股", "法說", "裁員"]
+    for entry in feed.entries[:5]:
+        for kw in keywords:
+            if kw in entry.title:
+                return f"🔍 今日觀點：{kw} 出現在熱門新聞中，投資人可留意其後續表現。"
+    return "📌 今日觀點：目前市場新聞中無明顯熱點，請持續觀察盤勢發展。"
+
 @scheduler.scheduled_job('cron', hour='8,19', minute=30)
 def scheduled_push():
     news_list = fetch_news()
-    for msg in news_list:
-        for gid in group_ids:
+    insight = generate_market_insight()
+    for gid in group_ids:
+        for msg in news_list:
             try:
-                line_bot_api.push_message(gid, TextSendMessage(text=msg))
+                if len(msg) <= 5000:
+                    line_bot_api.push_message(gid, TextSendMessage(text=msg))
             except Exception as e:
                 print(f"推播失敗：{e}")
+        if insight:
+            try:
+                line_bot_api.push_message(gid, TextSendMessage(text=insight))
+            except Exception as e:
+                print(f"觀點推播失敗：{e}")
 
 scheduler.start()
 
@@ -108,7 +129,8 @@ def handle_message(event):
                     "spacing": "sm",
                     "contents": [
                         {"type": "button", "action": {"type": "message", "label": "📰 今日新聞", "text": "今日新聞"}},
-                        {"type": "button", "action": {"type": "message", "label": "📈 市場資訊", "text": "市場資訊"}}
+                        {"type": "button", "action": {"type": "message", "label": "📈 市場資訊", "text": "市場資訊"}},
+                        {"type": "button", "action": {"type": "message", "label": "📊 AI 股市觀點", "text": "AI 股市觀點"}}
                     ]
                 }
             }
@@ -118,7 +140,12 @@ def handle_message(event):
     elif text == "今日新聞":
         news_list = fetch_news()
         for msg in news_list:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+            if len(msg) <= 5000:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+
+    elif text == "AI 股市觀點":
+        insight = generate_market_insight()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=insight))
 
     else:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{text}"))
