@@ -2,11 +2,7 @@ feedparser
 apscheduler
 line-bot-sdk
 flask
-flask
-line-bot-sdk
 python-dotenv
-flask
-line-bot-sdk
 gunicorn
 pytz
 beautifulsoup4
