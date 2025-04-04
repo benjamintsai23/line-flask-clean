@@ -6,16 +6,18 @@ import os
 
 app = Flask(__name__)
 
-# ====== 設定 LINE BOT 資訊 ======
-line_bot_api = LineBotApi(os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"))
-handler = WebhookHandler(os.environ.get("LINE_CHANNEL_SECRET"))
+# 環境變數設定
+line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
+handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 
-# ====== 建立 Rich Menu（首次部署時呼叫） ======
-def create_rich_menu():
+# ===== 建立 Rich Menu（只需執行一次） =====
+if os.getenv('CREATE_RICH_MENU') == '1':
+    from PIL import Image
+
     rich_menu = RichMenu(
         size={"width": 2500, "height": 843},
         selected=True,
-        name="財經主選單",
+        name="主選單",
         chat_bar_text="功能選單",
         areas=[
             RichMenuArea(
@@ -32,21 +34,23 @@ def create_rich_menu():
             )
         ]
     )
-    rich_menu_id = line_bot_api.create_rich_menu(rich_menu=rich_menu)
 
-    # 上傳圖片（用你上傳的 richmenu.png）
+    rich_menu_id = line_bot_api.create_rich_menu(rich_menu=rich_menu)
+    print(f"Rich Menu ID: {rich_menu_id}")
+
+    # 上傳圖片
     with open("richmenu.png", 'rb') as f:
         line_bot_api.set_rich_menu_image(rich_menu_id, 'image/png', f)
 
-    # 綁定 Rich Menu
+    # 綁定到所有用戶
     line_bot_api.set_default_rich_menu(rich_menu_id)
+    print("Rich Menu 建立並綁定成功")
 
-# ====== Webhook Home ======
-@app.route("/", methods=['GET'])
+
+@app.route("/")
 def home():
-    return "LINE Bot Webhook is running."
+    return "LINE Bot is running"
 
-# ====== Webhook 入口點 ======
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -58,23 +62,39 @@ def callback():
         abort(400)
     return 'OK'
 
-# ====== 訊息處理 ======
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    msg = event.message.text
-    if msg == "功能" or msg == "選單":
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請點選下方功能選單喔！"))
+    msg = event.message.text.strip()
+    uid = event.source.user_id
+
+    if msg in ["功能", "選單"]:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請點選下方功能選單喔！")
+        )
     elif msg == "今日新聞":
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="這是今日新聞 ✉️"))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="這裡是今日新聞！")
+        )
     elif msg == "市場資訊":
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="這是市場資訊 📈"))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="這裡是市場資訊！")
+        )
     elif msg == "AI 股市觀點":
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="這是 AI 股市觀點 🤖"))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="這裡是 AI 股市觀點！")
+        )
     else:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"你說的是：{msg}"))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"你說的是：{msg}")
+        )
 
 if __name__ == "__main__":
-    if os.environ.get("CREATE_RICH_MENU") == "1":
-        create_rich_menu()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
 
